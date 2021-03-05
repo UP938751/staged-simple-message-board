@@ -17,11 +17,6 @@ function showMessages(messages, where) {
     edit.href = `/message#${message.id}`;
     li.append(' (', edit, ')');
 
-    const ava = document.createElement('img');
-    ava.classList.add('avatar');
-    ava.src = message.avatar || '/images/user.svg';
-    li.prepend(ava);
-
     where.append(li);
 
     li.addEventListener('mouseenter', showDetail);
@@ -60,15 +55,13 @@ function checkKeys(e) {
 
 /** Use fetch to post a JSON message to the server */
 async function sendMessage() {
-  const payload = new FormData();
-  payload.append('msg', el.message.value);
-  if (el.avatarfile.files.length) {
-    payload.append('avatar', el.avatarfile.files[0]);
-  }
+  const payload = { msg: el.message.value };
+  console.log('Payload', payload);
 
   const response = await fetch('messages', {
     method: 'POST',
-    body: payload,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
   });
 
   if (response.ok) {
@@ -90,7 +83,6 @@ function prepareHandles() {
   el.message = document.querySelector('#message');
   el.send = document.querySelector('#send');
   el.detail = document.querySelector('#detail');
-  el.avatarfile = document.querySelector('#avatarfile');
 }
 
 /**
