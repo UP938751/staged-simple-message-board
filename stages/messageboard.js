@@ -1,34 +1,73 @@
-import config from './config.js';
-import Postgres from 'pg';
+import uuid from 'uuid-random';
+import sqlite from 'sqlite';
+import fs from 'fs';
+import util from 'util';
+import path from 'path';
 
-const sql = new Postgres.Client(config);
-sql.connect();
+fs.renameAsync = fs.renameAsync || util.promisify(fs.rename);
 
-sql.on('error', (err) => {
-  console.error('SQL Fail', err);
-  sql.end();
-});
+async function init() {
+  const db = await sqlite.open('./database.sqlite', { verbose: true });
+  await db.migrate({ migrationsPath: './migrations-sqlite' });
+  return db;
+}
+
+const dbConn = init();
+
+function addImagePath(message) {
+  if (message.file) {
+    message.avatar = '/images/' + message.file;
+  }
+}
 
 export async function listMessages() {
-  const q = 'SELECT * FROM Messageboard ORDER BY time DESC LIMIT 10;';
-  const result = await sql.query(q);
-  return result.rows;
+  const db = await dbConn;
+  const messages = await db.all('SELECT * FROM Messages ORDER BY time DESC LIMIT 10');
+  messages.forEach(addImagePath);
+  return messages;
 }
 
 export async function findMessage(id) {
-  const q = 'SELECT * FROM Messageboard WHERE id = $1;';
-  const result = await sql.query(q, [id]);
-  return result.rows[0];
+  const db = await dbConn;
+  const msg = db.get('SELECT * FROM Messages WHERE id = ?', id);
+  addImagePath(msg);
+  return msg;
 }
 
-export async function addMessage(msg) {
-  const q = 'INSERT INTO Messageboard (msg) VALUES ($1);';
-  await sql.query(q, [msg]);
+function currentTime() {
+  return new Date().toISOString();
+}
+
+export async function addMessage(msg, file) {
+  let newFilename;
+  if (file) {
+    // we should first check that the file is actually an image
+    // move the file where we want it
+    const fileExt = file.mimetype.split('/')[1] || 'png';
+    newFilename = file.filename + '.' + fileExt;
+    await fs.renameAsync(file.path, path.join('client', 'images', newFilename));
+  }
+
+  const db = await dbConn;
+
+  const id = uuid();
+  const time = currentTime();
+  await db.run('INSERT INTO Messages VALUES (?, ?, ?, ?)', [id, msg, time, newFilename]);
+
   return listMessages();
 }
 
 export async function editMessage(updatedMessage) {
-  const q = 'UPDATE Messageboard SET msg = $1 WHERE id = $2;';
-  await sql.query(q, [updatedMessage.msg, updatedMessage.id]);
-  return findMessage(updatedMessage.id);
+  const db = await dbConn;
+
+  const id = updatedMessage.id;
+  const time = currentTime();
+  const msg = updatedMessage.msg;
+
+  const statement = await db.run('UPDATE Messages SET msg = ? , time = ? WHERE id = ?', [msg, time, id]);
+
+  // if nothing was updated, the ID doesn't exist
+  if (statement.changes === 0) throw new Error('message not found');
+
+  return findMessage(id);
 }
